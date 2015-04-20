@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/NoahShen/aria2rpc"
@@ -21,15 +23,48 @@ func Shuffle(a []ServiceScraper) {
 	}
 }
 
+type Episode struct {
+	Id   int
+	Name string
+	Path string
+	Link string
+}
+
+type EpisodeSlice []*Episode
+
+func (e EpisodeSlice) Len() int           { return len(e) }
+func (e EpisodeSlice) Less(i, j int) bool { return e[i].Id < e[j].Id }
+func (e EpisodeSlice) Swap(i, j int)      { e[i], e[j] = e[j], e[i] }
+
+type Season struct {
+	Id       int
+	Path     string
+	Episodes []*Episode
+}
+
+type SeasonSlice []*Season
+
+func (s SeasonSlice) Len() int           { return len(s) }
+func (s SeasonSlice) Less(i, j int) bool { return s[i].Id < s[j].Id }
+func (s SeasonSlice) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
+
 func main() {
 
 	domain := "http://watch-series-tv.to"
 	serie := os.Args[1]
 
+	reverseSort := false
+	for _, arg := range os.Args {
+		if arg == "-r" {
+			reverseSort = true
+		}
+	}
+
 	EPISODE_REGEXP := regexp.MustCompile(`Episode\s+(\d+)([^$]+)`)
 	SEASON_REGEXP := regexp.MustCompile(`Season\s+(\d+)`)
 
 	services := []ServiceScraper{
+		NovaMov,
 		VodLocker,
 		GorillaVid,
 		DaClips,
@@ -43,48 +78,77 @@ func main() {
 
 	seriesTitle := doc.Find(".channel-title [itemprop=name]").Text()
 
+	seasons := make([]*Season, 0)
+
 	doc.Find("div[itemprop=season]").Each(func(i int, _season *goquery.Selection) {
+		season := &Season{
+			Id:       0,
+			Episodes: make([]*Episode, 0),
+		}
+		seasons = append(seasons, season)
+
 		heading := _season.Find("h2 span").Text()
 
 		match := SEASON_REGEXP.FindStringSubmatch(heading)
-		seasonId := "0"
 		if len(match) < 2 {
 			log.Println("Could not find season ID for " + heading)
 		} else {
-			seasonId = match[1]
+			season.Id, _ = strconv.Atoi(match[1])
 		}
 
-		fmt.Println("# " + heading)
+		season.Path = fmt.Sprintf("Season %d", season.Id)
 
 		_season.Find(".listings li[itemprop=episode]").Each(func(i int, _episode *goquery.Selection) {
+			episode := &Episode{
+				Id: 0,
+			}
+			season.Episodes = append(season.Episodes, episode)
+
 			text := _episode.Find("[itemprop=name]").Text()
 
 			match := EPISODE_REGEXP.FindStringSubmatch(text)
-			episodeId := "0"
-			episodeTitle := "Unknown"
+			episode.Name = "Unknown"
 			if len(match) < 3 {
 				log.Println("Could not find episode details for " + text)
 			} else {
-				episodeId = match[1]
-				episodeTitle = sanitize.Path(strings.TrimSpace(match[2]))
+				episode.Id, _ = strconv.Atoi(match[1])
+				episode.Name = sanitize.Path(strings.TrimSpace(match[2]))
 			}
 
-			filename := fmt.Sprintf("%s s%se%s - %s",
-				seriesTitle, seasonId, episodeId, episodeTitle)
+			episode.Path = fmt.Sprintf("%s s%de%d - %s",
+				seriesTitle, season.Id, episode.Id, episode.Name)
 
-			fmt.Println("- " + filename)
+			episode.Link, _ = _episode.Find("a").Attr("href")
 
-			if matches, _ := filepath.Glob(filename + ".*"); matches != nil {
+		})
+	})
+
+	if reverseSort {
+		fmt.Println("Reversing sort")
+		sort.Sort(sort.Reverse(SeasonSlice(seasons)))
+	}
+
+	for _, season := range seasons {
+		fmt.Println("# Season", season.Id)
+
+		if reverseSort {
+			fmt.Println("Reversing sort")
+			sort.Sort(sort.Reverse(SeasonSlice(seasons)))
+			sort.Sort(sort.Reverse(EpisodeSlice(season.Episodes)))
+		}
+
+		for _, episode := range season.Episodes {
+			fmt.Println("- " + season.Path + " / " + episode.Path)
+
+			if matches, _ := filepath.Glob(season.Path + "/" + episode.Path + ".*"); matches != nil {
 				fmt.Println("Already downloaded")
-				return
+				continue
 			}
 
-			episodeLink, _ := _episode.Find("a").Attr("href")
-
-			_episodeLinks, err := goquery.NewDocument(domain + episodeLink)
+			_episodeLinks, err := goquery.NewDocument(domain + episode.Link)
 			if err != nil {
 				log.Println(err)
-				return
+				continue
 			}
 
 			Shuffle(services)
@@ -124,18 +188,16 @@ func main() {
 					continue
 				}
 
-				fmt.Println(filename)
+				fmt.Println(episode.Path)
 
-				fmt.Println(fileUrl)
 				params := make(map[string]interface{})
 				params["max-connection-per-server"] = "5"
-				params["max-concurrent-downloads"] = "25"
-				params["out"] = filename + filepath.Ext(fileUrl)
+				params["max-concurrent-downloads"] = "5"
+				params["out"] = season.Path + "/" + episode.Path + filepath.Ext(fileUrl)
 				aria2rpc.AddUri(fileUrl, params)
 				break
 			}
-
-		})
-	})
+		}
+	}
 
 }
