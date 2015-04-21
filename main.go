@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/NoahShen/aria2rpc"
 	"github.com/PuerkitoBio/goquery"
@@ -49,6 +50,8 @@ func (s SeasonSlice) Less(i, j int) bool { return s[i].Id < s[j].Id }
 func (s SeasonSlice) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
 
 func main() {
+
+	rand.Seed(time.Now().UTC().UnixNano())
 
 	domain := "http://watch-series-tv.to"
 	serie := os.Args[1]
@@ -124,26 +127,22 @@ func main() {
 	})
 
 	if reverseSort {
-		fmt.Println("Reversing sort")
 		sort.Sort(sort.Reverse(SeasonSlice(seasons)))
 	}
 
 	for _, season := range seasons {
-		fmt.Println("# Season", season.Id)
-
 		if reverseSort {
-			fmt.Println("Reversing sort")
 			sort.Sort(sort.Reverse(SeasonSlice(seasons)))
 			sort.Sort(sort.Reverse(EpisodeSlice(season.Episodes)))
 		}
 
 		for _, episode := range season.Episodes {
-			fmt.Println("- " + season.Path + " / " + episode.Path)
 
 			if matches, _ := filepath.Glob(season.Path + "/" + episode.Path + ".*"); matches != nil {
-				fmt.Println("Already downloaded")
 				continue
 			}
+
+			fmt.Println("- " + season.Path + " / " + episode.Path)
 
 			_episodeLinks, err := goquery.NewDocument(domain + episode.Link)
 			if err != nil {
@@ -154,6 +153,8 @@ func main() {
 			Shuffle(services)
 
 			for _, service := range services {
+
+				fmt.Println(service.ClassName())
 
 				_serviceLinks := _episodeLinks.Find(service.ClassName())
 				if _serviceLinks.Length() < 1 {
