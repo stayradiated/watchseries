@@ -1,10 +1,10 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"log"
 	"math/rand"
-	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -54,13 +54,18 @@ func main() {
 	rand.Seed(time.Now().UTC().UnixNano())
 
 	domain := "http://watch-series-tv.to"
-	serie := os.Args[1]
 
-	reverseSort := false
-	for _, arg := range os.Args {
-		if arg == "-r" {
-			reverseSort = true
-		}
+	var reverseSort bool
+	flag.BoolVar(&reverseSort, "r", false, "Reverse sort")
+
+	var serie string
+	flag.StringVar(&serie, "s", "", "Series ID ")
+
+	flag.Parse()
+
+	if serie == "" {
+		log.Fatal("Must specify serie id")
+		return
 	}
 
 	EPISODE_REGEXP := regexp.MustCompile(`Episode\s+(\d+)([^$]+)`)
@@ -128,12 +133,17 @@ func main() {
 
 	if reverseSort {
 		sort.Sort(sort.Reverse(SeasonSlice(seasons)))
+	} else {
+		sort.Sort(SeasonSlice(seasons))
 	}
 
 	for _, season := range seasons {
 		if reverseSort {
 			sort.Sort(sort.Reverse(SeasonSlice(seasons)))
 			sort.Sort(sort.Reverse(EpisodeSlice(season.Episodes)))
+		} else {
+			sort.Sort(SeasonSlice(seasons))
+			sort.Sort(EpisodeSlice(season.Episodes))
 		}
 
 		for _, episode := range season.Episodes {
